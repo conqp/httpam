@@ -17,7 +17,6 @@ __all__ = [
     'SessionManager']
 
 
-_NOTSET = object()
 CONFIG_FILE = '/etc/httpam.conf'
 DEFAULT_CONFIG = {
     'allow_root': False,
