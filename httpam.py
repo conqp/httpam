@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from enum import Enum
-from functools import lru_cache, wraps
 from json import loads
 from pwd import getpwnam, struct_passwd
 from typing import NamedTuple
@@ -46,19 +45,6 @@ def _load_config(config_file):
     return DEFAULT_CONFIG.copy().update(loads(text))
 
 
-def coerce(typ):
-    """Coerces the return type of a funcion."""
-
-    def decorator(funcion):
-        @wraps(funcion)
-        def wrap(*args, **kwargs):
-            return typ(funcion(*args, **kwargs))
-
-        return wrap
-
-    return decorator
-
-
 class LoginPolicy(Enum):
     """Available login policies."""
 
@@ -99,7 +85,6 @@ class SessionManager(dict):
             LoginPolicy(config['login_policy']))
 
     @property
-    @coerce(frozenset)
     def users(self):
         """Yields the users."""
         for session in self.values():
