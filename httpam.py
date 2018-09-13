@@ -90,11 +90,11 @@ class SessionManager(dict):
         for session in self.values():
             yield session.user
 
-    def _logout(self, user_name):
+    def _logout(self, user):
         """Logs out a user."""
         sessions = {
-            session_id for session_id, user in self.items()
-            if user.pw_name == user_name}
+            session_id for session_id, session in self.items()
+            if session.user.pw_name == user.pw_name}
 
         for session in sessions:
             del self[session]
@@ -120,7 +120,7 @@ class SessionManager(dict):
             if user.pw_name in (user.pw_name for user in self.users):
                 raise AlreadyLoggedIn() from None
         elif self.config.login_policy == LoginPolicy.OVERRIDE:
-            self._logout(user.pw_name)
+            self._logout(user)
 
         session = Session(uuid4(), datetime.now(), user)
         self[session.session_id] = session
