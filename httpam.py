@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from json import dumps, loads
 from pwd import getpwnam, struct_passwd
-from typing import Generator, NamedTuple
+from typing import Generator, NamedTuple, Set
 from uuid import uuid4, UUID
 
 from pam import authenticate
@@ -17,6 +17,7 @@ __all__ = [
     'SessionManager']
 
 
+_NOTSET = object()
 CONFIG_FILE = '/etc/httpam.conf'
 DEFAULT_CONFIG = {
     'allow_root': False,
@@ -100,7 +101,14 @@ class Session(NamedTuple):
 
     def validate(self, duration):
         """Checks whether the session is still valid."""
-        return self.start + timedelta(minutes=duration) >= datetime.now()
+        if self.start + timedelta(minutes=duration) >= datetime.now():
+            return True
+
+        raise SessionTimedOut()
+
+    def refresh(self):
+        """Returns a new session with updated ID and start time."""
+        return type(self).open(self.user)
 
     def to_dict(self):
         """Returns a JSON-ish dictionary."""
@@ -126,19 +134,6 @@ class SessionManager(dict):
 
         self.config = config
 
-    def __getitem__(self, session_id: UUID):
-        """Returns the respective session."""
-        if not isinstance(session_id, UUID):
-            session_id = UUID(session_id)
-
-        session = super().__getitem__(session_id)
-
-        if session.validate(self.config.session_duration):
-            return session
-
-        del self[session_id]
-        raise SessionTimedOut() from None
-
     @property
     def users(self) -> Generator[struct_passwd, None, None]:
         """Yields the users."""
@@ -154,12 +149,20 @@ class SessionManager(dict):
         for session in sessions:
             del self[session]
 
-    def get(self, session_id: UUID, default=None):
-        """Gracefully returns a session."""
-        try:
-            return self[session_id]
-        except (KeyError, SessionTimedOut):
-            return default
+    def strip(self) -> Set[UUID]:
+        """Removes all timed-out sessions."""
+        timed_out = set()
+
+        for session_id, session in self.items():
+            try:
+                session.validate(self.config.session_duration)
+            except SessionTimedOut:
+                timed_out.add(session_id)
+
+        for session_id in timed_out:
+            del self[session_id]
+
+        return timed_out
 
     def login(self, user_name: str, password: str) -> Session:
         """Attempts a login."""
@@ -191,3 +194,14 @@ class SessionManager(dict):
     def close(self, session_id: UUID) -> Session:
         """Closes the respective sesion."""
         return self.pop(session_id, None)
+
+    def refresh(self, session_id: UUID) -> Session:
+        """Refreshes the respective session."""
+        session = self.pop(session_id)
+
+        if session.validate():
+            session = session.refresh()
+            self[session.ident] = session
+            return session
+
+        raise SessionTimedOut()
