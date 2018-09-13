@@ -126,8 +126,11 @@ class SessionManager(dict):
 
         self.config = config
 
-    def __getitem__(self, session_id):
+    def __getitem__(self, session_id: UUID):
         """Returns the respective session."""
+        if isinstance(session_id, str):
+            session_id = UUID(session_id)
+
         session = super().__getitem__(session_id)
 
         if session.validate(self.config.session_duration):
