@@ -128,7 +128,7 @@ class SessionManager(dict):
 
     def __getitem__(self, session_id: UUID):
         """Returns the respective session."""
-        if isinstance(session_id, str):
+        if not isinstance(session_id, UUID):
             session_id = UUID(session_id)
 
         session = super().__getitem__(session_id)
