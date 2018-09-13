@@ -13,7 +13,7 @@ from pam import authenticate
 __all__ = [
     'InvalidUserNameOrPassword',
     'AlreadyLoggedIn',
-    'SessionTimedOut',
+    'SessionExpired',
     'SessionManager']
 
 
@@ -38,7 +38,7 @@ class AlreadyLoggedIn(Exception):
     pass
 
 
-class SessionTimedOut(Exception):
+class SessionExpired(Exception):
     """Indicates that the respective session timed out."""
 
     pass
@@ -104,7 +104,7 @@ class Session(NamedTuple):
         if self.start + timedelta(minutes=duration) >= datetime.now():
             return True
 
-        raise SessionTimedOut()
+        raise SessionExpired()
 
     def refresh(self):
         """Returns a new session with updated ID and start time."""
@@ -118,49 +118,44 @@ class Session(NamedTuple):
             'user': self.user}
 
 
-class SessionManager(dict):
+class SessionManager:
     """A web service session handler."""
-
-    def __new__(cls, **_):
-        """Returns a new session manager."""
-        return super().__new__(cls)
 
     def __init__(self, config=None):
         """Sets the config_file."""
-        super().__init__()
-
         if config is None:
             config = Config.from_file(CONFIG_FILE)
 
         self.config = config
+        self.sessions = {}
 
     @property
     def users(self) -> Generator[struct_passwd, None, None]:
         """Yields the users."""
-        for session in self.values():
+        for session in self.sessions.values():
             yield session.user
 
     def _logout(self, user):
         """Logs out a user."""
         sessions = {
-            session_id for session_id, session in self.items()
+            session_id for session_id, session in self.sessions.items()
             if session.user.pw_name == user.pw_name}
 
         for session in sessions:
-            del self[session]
+            del self.sessions[session]
 
     def strip(self) -> Set[UUID]:
         """Removes all timed-out sessions."""
         timed_out = set()
 
-        for session_id, session in self.items():
+        for session_id, session in self.sessions.items():
             try:
                 session.validate(self.config.session_duration)
-            except SessionTimedOut:
+            except SessionExpired:
                 timed_out.add(session_id)
 
         for session_id in timed_out:
-            del self[session_id]
+            del self.sessions[session_id]
 
         return timed_out
 
@@ -187,21 +182,36 @@ class SessionManager(dict):
         elif self.config.login_policy == LoginPolicy.OVERRIDE:
             self._logout(user)
 
-        session = Session(uuid4(), datetime.now(), user)
-        self[session.ident] = session
+        session = Session.open(user)
+        self.sessions[session.ident] = session
         return session
+
+    def get(self, session_id):
+        """Returns the respective session ID."""
+        try:
+            session = self.sessions[session_id]
+        except KeyError:
+            raise SessionExpired()
+
+        if session.validate(self.config.session_duration):
+            return session
+
+        raise SessionExpired()
 
     def close(self, session_id: UUID) -> Session:
         """Closes the respective sesion."""
-        return self.pop(session_id, None)
+        return self.sessions.pop(session_id, None)
 
     def refresh(self, session_id: UUID) -> Session:
         """Refreshes the respective session."""
-        session = self.pop(session_id)
+        try:
+            session = self.sessions.pop(session_id)
+        except KeyError:
+            raise SessionExpired()
 
         if session.validate():
             session = session.refresh()
-            self[session.ident] = session
+            self.sessions[session.ident] = session
             return session
 
-        raise SessionTimedOut()
+        raise SessionExpired()
