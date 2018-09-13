@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from json import dumps, loads
 from pwd import getpwnam, struct_passwd
-from typing import NamedTuple
+from typing import Generator, NamedTuple
 from uuid import uuid4, UUID
 
 from pam import authenticate
@@ -137,7 +137,7 @@ class SessionManager(dict):
         raise SessionTimedOut() from None
 
     @property
-    def users(self):
+    def users(self) -> Generator[struct_passwd, None, None]:
         """Yields the users."""
         for session in self.values():
             yield session.user
@@ -151,14 +151,14 @@ class SessionManager(dict):
         for session in sessions:
             del self[session]
 
-    def get(self, session_id, default=None):
+    def get(self, session_id: UUID, default=None):
         """Gracefully returns a session."""
         try:
             return self[session_id]
         except (KeyError, SessionTimedOut):
             return default
 
-    def login(self, user_name, password) -> Session:
+    def login(self, user_name: str, password: str) -> Session:
         """Attempts a login."""
         try:
             user = getpwnam(user_name)
@@ -185,6 +185,6 @@ class SessionManager(dict):
         self[session.ident] = session
         return session
 
-    def close(self, session_id):
+    def close(self, session_id: UUID) -> Session:
         """Closes the respective sesion."""
         return self.pop(session_id, None)
