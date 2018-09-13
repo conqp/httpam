@@ -11,7 +11,7 @@ from uuid import uuid4, UUID
 from pam import authenticate
 
 
-__all__ = ['SessionManager']
+__all__ = ['InvalidUserNameOrPassword', 'AlreadyLoggedIn', 'SessionManager']
 
 
 CONFIG_FILE = '/etc/httpam.conf'
@@ -88,7 +88,7 @@ class SessionManager(dict):
 
     def __new__(cls, **_):
         """Returns a new session manager."""
-        super().__new__(cls)
+        return super().__new__(cls)
 
     def __init__(self, config_file=CONFIG_FILE):
         """Sets the config_file."""
