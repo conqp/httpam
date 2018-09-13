@@ -16,8 +16,8 @@ __all__ = ['InvalidUserNameOrPassword', 'AlreadyLoggedIn', 'SessionManager']
 
 CONFIG_FILE = '/etc/httpam.conf'
 DEFAULT_CONFIG = {
-    'allow_root': 'false',
-    'min_uid': str(1000),
+    'allow_root': False,
+    'min_uid': 1000,
     'login_policy': 'override'
 }
 
@@ -93,14 +93,8 @@ class SessionManager(dict):
     def __init__(self, config_file=CONFIG_FILE):
         """Sets the config_file."""
         super().__init__()
-        self.config_file = config_file
-
-    @property
-    @lru_cache(maxsize=1)
-    def config(self):
-        """Returns the configuration."""
-        config = _load_config(self.config_file)
-        return Config(
+        config = _load_config(config_file)
+        self.config = Config(
             config['allow_root'], config['min_uid'],
             LoginPolicy(config['login_policy']))
 
@@ -125,21 +119,21 @@ class SessionManager(dict):
         try:
             user = getpwnam(user_name)
         except KeyError:
-            raise InvalidUserNameOrPassword()
+            raise InvalidUserNameOrPassword() from None
 
         if user.pw_name == 'root' or user.pw_uid == 0:
             if not self.config.allow_root:
-                raise InvalidUserNameOrPassword()
+                raise InvalidUserNameOrPassword() from None
 
         if user.pw_uid < self.config.min_uid:
-            raise InvalidUserNameOrPassword()
+            raise InvalidUserNameOrPassword() from None
 
         if not authenticate(user.pw_name, password):
-            raise InvalidUserNameOrPassword()
+            raise InvalidUserNameOrPassword() from None
 
         if self.config.login_policy == LoginPolicy.DENY:
             if user.pw_name in (user.pw_name for user in self.users):
-                raise AlreadyLoggedIn()
+                raise AlreadyLoggedIn() from None
         elif self.config.login_policy == LoginPolicy.OVERRIDE:
             self._logout(user.pw_name)
 
