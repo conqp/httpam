@@ -44,6 +44,15 @@ class SessionExpired(Exception):
     pass
 
 
+def _ensure_uuid(value):
+    """Tries to create a UUID from value."""
+
+    if isinstance(value, UUID):
+        return value
+
+    return UUID(value)
+
+
 class LoginPolicy(Enum):
     """Available login policies."""
 
@@ -186,10 +195,10 @@ class SessionManager:
         self.sessions[session.ident] = session
         return session
 
-    def get(self, session_id):
+    def get(self, session_id: UUID):
         """Returns the respective session ID."""
         try:
-            session = self.sessions[session_id]
+            session = self.sessions[_ensure_uuid(session_id)]
         except KeyError:
             raise SessionExpired()
 
@@ -200,12 +209,12 @@ class SessionManager:
 
     def close(self, session_id: UUID) -> Session:
         """Closes the respective sesion."""
-        return self.sessions.pop(session_id, None)
+        return self.sessions.pop(_ensure_uuid(session_id), None)
 
     def refresh(self, session_id: UUID) -> Session:
         """Refreshes the respective session."""
         try:
-            session = self.sessions.pop(session_id)
+            session = self.sessions.pop(_ensure_uuid(session_id))
         except KeyError:
             raise SessionExpired()
 
