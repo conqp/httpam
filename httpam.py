@@ -50,7 +50,7 @@ class LoginPolicy(Enum):
 
     MULTI = 'multi'
     OVERRIDE = 'override'
-    SINGLE = 'deny'
+    SINGLE = 'single'
 
 
 class Config(NamedTuple):
@@ -116,7 +116,7 @@ class SessionManager(dict):
         if not authenticate(user.pw_name, password):
             raise InvalidUserNameOrPassword() from None
 
-        if self.config.login_policy == LoginPolicy.DENY:
+        if self.config.login_policy == LoginPolicy.SINGLE:
             if user.pw_name in (user.pw_name for user in self.users):
                 raise AlreadyLoggedIn() from None
         elif self.config.login_policy == LoginPolicy.OVERRIDE:
