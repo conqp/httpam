@@ -134,9 +134,14 @@ class SessionManager:
     def __init__(self, config=None):
         """Sets the config_file."""
         if config is None:
-            config = Config.from_file(CONFIG_FILE)
+            self.config = Config.from_file(CONFIG_FILE)
+        elif isinstance(config, Config):
+            self.config = config
+        elif isinstance(config, dict):
+            self.config = Config.from_dict(config)
+        else:
+            self.config = Config.from_file(config)
 
-        self.config = config
         self.sessions = {}
 
     @property
