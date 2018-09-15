@@ -20,6 +20,7 @@ __all__ = [
 CONFIG_FILE = '/etc/httpam.conf'
 DEFAULT_CONFIG = {
     'allow_root': False,
+    'allow_empty_password': False,
     'min_uid': 1000,
     'login_policy': 'override',
     'session_duration': 15}
@@ -64,6 +65,7 @@ class Config(NamedTuple):
     """The respective configuration."""
 
     allow_root: bool
+    allow_empty_password: bool
     min_uid: int
     login_policy: LoginPolicy
     session_duration: int
@@ -86,8 +88,8 @@ class Config(NamedTuple):
     def from_dict(cls, dictionary):
         """Creates a config instance from the respective dict."""
         return cls(
-            dictionary['allow_root'], dictionary['min_uid'],
-            LoginPolicy(dictionary['login_policy']),
+            dictionary['allow_root'], dictionary['allow_empty_password'],
+            dictionary['min_uid'], LoginPolicy(dictionary['login_policy']),
             dictionary['session_duration'])
 
 
@@ -169,6 +171,9 @@ class SessionManager:
 
     def login(self, user_name: str, password: str) -> Session:
         """Attempts a login."""
+        if not password and not self.config.allow_empty_password:
+            raise InvalidUserNameOrPassword() from None
+
         try:
             user = getpwnam(user_name)
         except KeyError:
