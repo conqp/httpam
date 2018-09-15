@@ -114,7 +114,7 @@ class Session(NamedTuple):
         if self.start + timedelta(minutes=duration) >= datetime.now():
             return True
 
-        raise SessionExpired()
+        raise SessionExpired() from None
 
     def refresh(self):
         """Returns a new session with updated ID and start time."""
@@ -204,7 +204,7 @@ class SessionManager:
         try:
             session = self.sessions[_ensure_uuid(session_id)]
         except KeyError:
-            raise SessionExpired()
+            raise SessionExpired() from None
 
         if session.validate(self.config.session_duration):
             return session
@@ -220,11 +220,11 @@ class SessionManager:
         try:
             session = self.sessions.pop(_ensure_uuid(session_id))
         except KeyError:
-            raise SessionExpired()
+            raise SessionExpired() from None
 
         if session.validate():
             session = session.refresh()
             self.sessions[session.ident] = session
             return session
 
-        raise SessionExpired()
+        raise SessionExpired() from None
