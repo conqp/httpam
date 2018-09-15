@@ -3,17 +3,20 @@
 from datetime import datetime, timedelta
 from enum import Enum
 from json import dumps, loads
-from pwd import getpwnam, struct_passwd
-from typing import Generator, NamedTuple, Set
+from pwd import getpwnam
+from typing import NamedTuple
 from uuid import uuid4, UUID
 
 from pam import pam as PAM
+from peewee import CharField, DateTimeField, UUIDField
+from peeweeplus import JSONModel
 
 
 __all__ = [
     'InvalidUserNameOrPassword',
     'AlreadyLoggedIn',
     'SessionExpired',
+    'SessionBase',
     'SessionManager']
 
 
@@ -93,21 +96,16 @@ class Config(NamedTuple):
             dictionary['session_duration'])
 
 
-class Session(NamedTuple):
+class SessionBase(JSONModel):
     """Represents a session."""
 
-    ident: UUID
-    start: datetime
-    user: struct_passwd
+    token = UUIDField(default=uuid4)
+    user = CharField(255)
+    start = DateTimeField(default=datetime.now)
 
     def __str__(self):
         """Returns the session as JSON string."""
-        return dumps(self.to_dict(), indent=2)
-
-    @classmethod
-    def open(cls, user):
-        """Opens a new session for the respective user."""
-        return cls(uuid4(), datetime.now(), user)
+        return dumps(self.to_json(), indent=2)
 
     def validate(self, duration):
         """Checks whether the session is still valid."""
@@ -118,20 +116,14 @@ class Session(NamedTuple):
 
     def refresh(self):
         """Returns a new session with updated ID and start time."""
-        return type(self).open(self.user)
-
-    def to_dict(self):
-        """Returns a JSON-ish dictionary."""
-        return {
-            'ident': self.ident.hex,
-            'start': self.start.isoformat(),
-            'user': self.user}
+        self.token = uuid4()
+        self.start = datetime.now()
 
 
 class SessionManager:
     """A web service session handler."""
 
-    def __init__(self, config=None):
+    def __init__(self, session, config=None):
         """Sets the config_file."""
         if config is None:
             self.config = Config.from_file(CONFIG_FILE)
@@ -142,39 +134,24 @@ class SessionManager:
         else:
             self.config = Config.from_file(config)
 
-        self.sessions = {}
+        self.session = session
 
-    @property
-    def users(self) -> Generator[struct_passwd, None, None]:
-        """Yields the users."""
-        for session in self.sessions.values():
-            yield session.user
+    def get(self, token: UUID) -> SessionBase:
+        """Returns the respective session ID."""
+        try:
+            session = self.session.get(
+                self.session.token == _ensure_uuid(token))
+        except self.session.DoesNotExist:
+            raise SessionExpired() from None
 
-    def _logout(self, user):
-        """Logs out a user."""
-        sessions = {
-            session_id for session_id, session in self.sessions.items()
-            if session.user.pw_name == user.pw_name}
+        if session.validate(self.config.session_duration):
+            return session
 
-        for session in sessions:
-            del self.sessions[session]
+        session.delete_instance()
+        raise SessionExpired() from None
 
-    def strip(self) -> Set[UUID]:
-        """Removes all timed-out sessions."""
-        timed_out = set()
 
-        for session_id, session in self.sessions.items():
-            try:
-                session.validate(self.config.session_duration)
-            except SessionExpired:
-                timed_out.add(session_id)
-
-        for session_id in timed_out:
-            self.close(session_id)
-
-        return timed_out
-
-    def login(self, user_name: str, password: str) -> Session:
+    def login(self, user_name: str, password: str) -> SessionBase:
         """Attempts a login."""
         if not password and not self.config.allow_empty_password:
             raise InvalidUserNameOrPassword() from None
@@ -197,36 +174,52 @@ class SessionManager:
             raise InvalidUserNameOrPassword(pam.reason, pam.code) from None
 
         if self.config.login_policy == LoginPolicy.SINGLE:
-            if user.pw_name in (user.pw_name for user in self.users):
+            try:
+                self.session.get(self.session.user == user.pw_name)
+            except self.session.DoesNotExist:
+                pass
+            else:
                 raise AlreadyLoggedIn() from None
         elif self.config.login_policy == LoginPolicy.OVERRIDE:
-            self._logout(user)
+            for session in self.session.select().where(
+                    self.session.user == user.pw_name):
+                session.delete_instance()
 
-        session = Session.open(user)
-        self.sessions[session.ident] = session
+        session = self.session(user=user.pw_name)
+        session.save()
         return session
 
-    def get(self, session_id: UUID):
-        """Returns the respective session ID."""
+    def close(self, token: UUID) -> None:
+        """Closes the respective session."""
         try:
-            session = self.sessions[_ensure_uuid(session_id)]
-        except KeyError:
+            session = self.session.get(
+                self.session.token == _ensure_uuid(token))
+        except self.session.DoesNotExist:
+            return False
+
+        session.delete_instance()
+        return True
+
+    def refresh(self, token: UUID) -> SessionBase:
+        """Refreshes the session."""
+        try:
+            session = self.session.get(
+                self.session.token == _ensure_uuid(token))
+        except self.session.DoesNotExist:
             raise SessionExpired() from None
 
         if session.validate(self.config.session_duration):
+            session.refresh()
+            session.save()
             return session
 
-        raise SessionExpired()
+        session.delete_instance()
+        raise SessionExpired() from None
 
-    def close(self, session_id: UUID) -> Session:
-        """Closes the respective sesion."""
-        return self.sessions.pop(_ensure_uuid(session_id), None)
-
-    def refresh(self, session_id: UUID) -> Session:
-        """Refreshes the respective session."""
-        session_id = _ensure_uuid(session_id)
-        session = self.get(session_id)
-        session = session.refresh()
-        self.close(session_id)
-        self.sessions[session.ident] = session
-        return session
+    def strip(self) -> None:
+        """Removes all timed-out sessions."""
+        for session in self.session:
+            try:
+                session.validate(self.config.session_duration)
+            except SessionExpired:
+                session.delete_instance()
