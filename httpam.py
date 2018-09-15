@@ -123,7 +123,7 @@ class SessionBase(JSONModel):
 class SessionManager:
     """A web service session handler."""
 
-    def __init__(self, session, config=None):
+    def __init__(self, session: SessionBase, config=None):
         """Sets the config_file."""
         if config is None:
             self.config = Config.from_file(CONFIG_FILE)
