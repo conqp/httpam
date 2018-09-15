@@ -100,12 +100,17 @@ class SessionMixin(JSONMixin):
     """Represents a session."""
 
     token = UUIDField(default=uuid4)
-    user = CharField(255)
+    user_name = CharField(255)
     start = DateTimeField(default=datetime.now)
 
     def __str__(self):
         """Returns the session as JSON string."""
         return dumps(self.to_json(), indent=2)
+
+    @property
+    def user(self):
+        """Returns the actual user."""
+        return getpwnam(self.user_name)
 
     def validate(self, duration):
         """Checks whether the session is still valid."""
