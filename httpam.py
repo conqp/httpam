@@ -170,7 +170,7 @@ class SessionManager:
                 timed_out.add(session_id)
 
         for session_id in timed_out:
-            del self.sessions[session_id]
+            self.close(session_id)
 
         return timed_out
 
@@ -227,6 +227,6 @@ class SessionManager:
         session_id = _ensure_uuid(session_id)
         session = self.get(session_id)
         session = session.refresh()
-        del self.sessions[session_id]
+        self.close(session_id)
         self.sessions[session.ident] = session
         return session
