@@ -224,14 +224,9 @@ class SessionManager:
 
     def refresh(self, session_id: UUID) -> Session:
         """Refreshes the respective session."""
-        try:
-            session = self.sessions.pop(_ensure_uuid(session_id))
-        except KeyError:
-            raise SessionExpired() from None
-
-        if session.validate():
-            session = session.refresh()
-            self.sessions[session.ident] = session
-            return session
-
-        raise SessionExpired() from None
+        session_id = _ensure_uuid(session_id)
+        session = self.get(session_id)
+        session = session.refresh()
+        del self.sessions[session_id]
+        self.sessions[session.ident] = session
+        return session
