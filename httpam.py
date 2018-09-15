@@ -7,7 +7,7 @@ from pwd import getpwnam, struct_passwd
 from typing import Generator, NamedTuple, Set
 from uuid import uuid4, UUID
 
-from pam import authenticate
+from pam import pam as PAM
 
 
 __all__ = [
@@ -191,8 +191,10 @@ class SessionManager:
         if user.pw_uid < self.config.min_uid:
             raise InvalidUserNameOrPassword() from None
 
-        if not authenticate(user.pw_name, password):
-            raise InvalidUserNameOrPassword() from None
+        pam = PAM()
+
+        if not pam.authenticate(user.pw_name, password):
+            raise InvalidUserNameOrPassword(pam.reason, pam.code) from None
 
         if self.config.login_policy == LoginPolicy.SINGLE:
             if user.pw_name in (user.pw_name for user in self.users):
