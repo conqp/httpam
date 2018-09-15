@@ -9,14 +9,14 @@ from uuid import uuid4, UUID
 
 from pam import pam as PAM
 from peewee import CharField, DateTimeField, UUIDField
-from peeweeplus import JSONModel
+from peeweeplus import JSONMixin
 
 
 __all__ = [
     'InvalidUserNameOrPassword',
     'AlreadyLoggedIn',
     'SessionExpired',
-    'SessionBase',
+    'SessionMixin',
     'SessionManager']
 
 
@@ -96,7 +96,7 @@ class Config(NamedTuple):
             dictionary['session_duration'])
 
 
-class SessionBase(JSONModel):
+class SessionMixin(JSONMixin):
     """Represents a session."""
 
     token = UUIDField(default=uuid4)
@@ -123,7 +123,7 @@ class SessionBase(JSONModel):
 class SessionManager:
     """A web service session handler."""
 
-    def __init__(self, session: SessionBase, config=None):
+    def __init__(self, session: SessionMixin, config=None):
         """Sets the config_file."""
         if config is None:
             self.config = Config.from_file(CONFIG_FILE)
@@ -136,7 +136,7 @@ class SessionManager:
 
         self.session = session
 
-    def get(self, token: UUID) -> SessionBase:
+    def get(self, token: UUID) -> SessionMixin:
         """Returns the respective session ID."""
         try:
             session = self.session.get(
@@ -151,7 +151,7 @@ class SessionManager:
         raise SessionExpired() from None
 
 
-    def login(self, user_name: str, password: str) -> SessionBase:
+    def login(self, user_name: str, password: str) -> SessionMixin:
         """Attempts a login."""
         if not password and not self.config.allow_empty_password:
             raise InvalidUserNameOrPassword() from None
@@ -200,7 +200,7 @@ class SessionManager:
         session.delete_instance()
         return True
 
-    def refresh(self, token: UUID) -> SessionBase:
+    def refresh(self, token: UUID) -> SessionMixin:
         """Refreshes the session."""
         try:
             session = self.session.get(
