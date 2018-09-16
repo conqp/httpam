@@ -11,7 +11,7 @@ from pam import authenticate
 
 
 __all__ = [
-    'InvalidUserNameOrPassword',
+    'AuthenticationError',
     'AlreadyLoggedIn',
     'SessionExpired',
     'SessionManager']
@@ -25,7 +25,7 @@ DEFAULT_CONFIG = {
     'session_duration': 15}
 
 
-class InvalidUserNameOrPassword(Exception):
+class AuthenticationError(Exception):
     """Indicates an unsuccessful login attempt."""
 
     pass
@@ -172,17 +172,17 @@ class SessionManager:
         try:
             user = getpwnam(user_name)
         except KeyError:
-            raise InvalidUserNameOrPassword() from None
+            raise AuthenticationError() from None
 
         if user.pw_name == 'root' or user.pw_uid == 0:
             if not self.config.allow_root:
-                raise InvalidUserNameOrPassword() from None
+                raise AuthenticationError() from None
 
         if user.pw_uid < self.config.min_uid:
-            raise InvalidUserNameOrPassword() from None
+            raise AuthenticationError() from None
 
         if not authenticate(user.pw_name, password):
-            raise InvalidUserNameOrPassword() from None
+            raise AuthenticationError() from None
 
         if self.config.login_policy == LoginPolicy.SINGLE:
             if user.pw_name in (user.pw_name for user in self.users):
