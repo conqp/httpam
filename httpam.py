@@ -13,7 +13,7 @@ from peeweeplus import JSONModel
 
 
 __all__ = [
-    'InvalidUserNameOrPassword',
+    'AuthenticationError',
     'AlreadyLoggedIn',
     'SessionExpired',
     'Config',
@@ -30,7 +30,7 @@ DEFAULT_CONFIG = {
     'session_duration': 15}
 
 
-class InvalidUserNameOrPassword(Exception):
+class AuthenticationError(Exception):
     """Indicates an unsuccessful login attempt."""
 
 
@@ -141,24 +141,24 @@ class SessionManager:
     def login(self, user_name: str, password: str) -> SessionBase:
         """Attempts a login."""
         if not password and not self.config.allow_empty_password:
-            raise InvalidUserNameOrPassword() from None
+            raise AuthenticationError() from None
 
         try:
             user = getpwnam(user_name)
         except KeyError:
-            raise InvalidUserNameOrPassword() from None
+            raise AuthenticationError() from None
 
         if user.pw_name == 'root' or user.pw_uid == 0:
             if not self.config.allow_root:
-                raise InvalidUserNameOrPassword() from None
+                raise AuthenticationError() from None
 
         if user.pw_uid < self.config.min_uid:
-            raise InvalidUserNameOrPassword() from None
+            raise AuthenticationError() from None
 
         pam = PAM()
 
         if not pam.authenticate(user.pw_name, password):
-            raise InvalidUserNameOrPassword(pam.reason, pam.code) from None
+            raise AuthenticationError(pam.reason, pam.code) from None
 
         if self.config.login_policy == LoginPolicy.SINGLE:
             try:
