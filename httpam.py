@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 from enum import Enum
+from functools import wraps
 from json import dumps, load
 from pathlib import Path
 from pwd import getpwnam
@@ -43,13 +44,18 @@ class SessionExpired(Exception):
     """Indicates that the respective session timed out."""
 
 
-def _ensure_uuid(value):
-    """Tries to create a UUID from value."""
+def with_uuid(method):
+    """Decorator to ensure that the first argument is a UUID."""
 
-    if isinstance(value, UUID):
-        return value
+    @wraps(method)
+    def decorator(self, uuid, *args, **kwargs):
+        """Tries to create a UUID instance from the given uuid."""
+        if not isinstance(uuid, UUID):
+            uuid = UUID(uuid)
 
-    return UUID(value)
+        return method(self, uuid, *args, **kwargs)
+
+    return decorator
 
 
 class LoginPolicy(Enum):
@@ -139,11 +145,11 @@ class SessionManager:
                 'config must be one of "httpam.Config", "dict", "str" or '
                 '"pathlib.Path".')
 
+    @with_uuid
     def get(self, token: UUID) -> SessionBase:
         """Returns the respective session ID."""
         try:
-            session = self.session.get(
-                self.session.token == _ensure_uuid(token))
+            session = self.session.get(self.session.token == token)
         except self.session.DoesNotExist:
             raise SessionExpired()
 
@@ -192,22 +198,22 @@ class SessionManager:
         session.save()
         return session
 
+    @with_uuid
     def close(self, token: UUID) -> None:
         """Closes the respective session."""
         try:
-            session = self.session.get(
-                self.session.token == _ensure_uuid(token))
+            session = self.session.get(self.session.token == token)
         except self.session.DoesNotExist:
             return False
 
         session.delete_instance()
         return True
 
+    @with_uuid
     def refresh(self, token: UUID) -> SessionBase:
         """Refreshes the session."""
         try:
-            session = self.session.get(
-                self.session.token == _ensure_uuid(token))
+            session = self.session.get(self.session.token == token)
         except self.session.DoesNotExist:
             raise SessionExpired()
 
