@@ -1,25 +1,21 @@
 """A web service authentication API using PAM."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from enum import Enum
 from functools import wraps
-from json import dumps, load
+from json import load
 from pathlib import Path
 from pwd import getpwnam, getpwuid, struct_passwd
 from typing import NamedTuple
-from uuid import uuid4, UUID
+from uuid import UUID
 
 from pam import pam as PAM
-from peewee import CharField, DateTimeField, IntegerField, UUIDField
-from peeweeplus import JSONModel
 
 
 __all__ = [
     'AuthenticationError',
     'AlreadyLoggedIn',
     'SessionExpired',
-    'Config',
-    'SessionBase',
     'SessionManager']
 
 
@@ -120,45 +116,10 @@ class Config(NamedTuple):
             timedelta(seconds=dictionary['session_duration']))
 
 
-class SessionBase(JSONModel):
-    """Represents a session."""
-
-    token = UUIDField(default=uuid4)
-    user = CharField(255)
-    uid = IntegerField()
-    start = DateTimeField(default=datetime.now)
-    end = DateTimeField()
-
-    def __str__(self):
-        """Returns the session as JSON string."""
-        return dumps(self.to_json(), indent=2)
-
-    @classmethod
-    def open(cls, user, duration):
-        """Opens a new session for the respective user."""
-        session = cls()
-        session.user = user.pw_name
-        session.uid = user.pw_uid
-        session.end = datetime.now() + duration
-        return session
-
-    def validate(self, duration):
-        """Checks whether the session is still valid."""
-        if self.start <= datetime.now() <= self.end:
-            return True
-
-        raise SessionExpired()
-
-    def refresh(self, duration):
-        """Returns a new session with updated ID and start time."""
-        self.token = uuid4()
-        self.end = datetime.now() + duration
-
-
 class SessionManager:
     """A web service session handler."""
 
-    def __init__(self, session: SessionBase, config=None):
+    def __init__(self, session, config=None):
         """Sets the session base and configuration."""
         self.session = session
 
@@ -176,7 +137,7 @@ class SessionManager:
                 '"pathlib.Path".')
 
     @with_uuid
-    def get(self, token: UUID) -> SessionBase:
+    def get(self, token: UUID):
         """Returns the respective session ID."""
         try:
             session = self.session.get(self.session.token == token)
@@ -186,12 +147,12 @@ class SessionManager:
         if session.validate(self.config.session_duration):
             return session
 
-        session.delete_instance()
+        session.close()
         raise SessionExpired()
 
 
     @with_user
-    def login(self, user, password: str) -> SessionBase:
+    def login(self, user, password: str):
         """Attempts a login."""
         if not password and not self.config.allow_empty_password:
             raise AuthenticationError()
@@ -236,7 +197,7 @@ class SessionManager:
         return True
 
     @with_uuid
-    def refresh(self, token: UUID) -> SessionBase:
+    def refresh(self, token: UUID):
         """Refreshes the session."""
         try:
             session = self.session.get(self.session.token == token)
@@ -257,4 +218,4 @@ class SessionManager:
             try:
                 session.validate()
             except SessionExpired:
-                session.delete_instance()
+                session.close()
