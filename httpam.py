@@ -29,7 +29,7 @@ DEFAULT_CONFIG = {
     'allow_empty_password': False,
     'min_uid': 1000,
     'login_policy': 'override',
-    'session_duration': 15}
+    'session_duration': 900}    # 900 sec. = 14 min.
 
 
 class AuthenticationError(Exception):
@@ -73,7 +73,7 @@ class Config(NamedTuple):
     allow_empty_password: bool
     min_uid: int
     login_policy: LoginPolicy
-    session_duration: int
+    session_duration: timedelta
 
     @classmethod
     def default(cls):
@@ -98,7 +98,7 @@ class Config(NamedTuple):
             bool(dictionary['allow_empty_password']),
             int(dictionary['min_uid']),
             LoginPolicy(dictionary['login_policy']),
-            int(dictionary['session_duration']))
+            timedelta(seconds=dictionary['session_duration']))
 
 
 class SessionBase(JSONModel):
@@ -107,6 +107,7 @@ class SessionBase(JSONModel):
     token = UUIDField(default=uuid4)
     user = CharField(255)
     start = DateTimeField(default=datetime.now)
+    end = DateTimeField()
 
     def __str__(self):
         """Returns the session as JSON string."""
@@ -114,15 +115,15 @@ class SessionBase(JSONModel):
 
     def validate(self, duration):
         """Checks whether the session is still valid."""
-        if self.start + timedelta(minutes=duration) >= datetime.now():
+        if self.start <= datetime.now() <= self.end:
             return True
 
         raise SessionExpired()
 
-    def refresh(self):
+    def refresh(self, duration):
         """Returns a new session with updated ID and start time."""
         self.token = uuid4()
-        self.start = datetime.now()
+        self.end = datetime.now() + duration
 
 
 class SessionManager:
