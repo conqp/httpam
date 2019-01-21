@@ -2,12 +2,10 @@
 
 from datetime import timedelta
 from enum import Enum
-from functools import wraps
 from json import load
 from pathlib import Path
 from pwd import getpwnam, getpwuid, struct_passwd
 from typing import NamedTuple
-from uuid import UUID
 
 from pam import pam as PAM
 
@@ -40,37 +38,23 @@ class SessionExpired(Exception):
     """Indicates that the respective session timed out."""
 
 
-def with_uuid(method):
-    """Decorator to ensure that the first argument is a UUID."""
-
-    @wraps(method)
-    def wrapper(self, uuid, *args, **kwargs):
-        """Tries to create a UUID instance from the given uuid."""
-        if not isinstance(uuid, UUID):
-            uuid = UUID(uuid)
-
-        return method(self, uuid, *args, **kwargs)
-
-    return wrapper
+class NoSuchSession(Exception):
+    """Indicates that the respective session does not exist."""
 
 
-def with_user(method):
-    """Decorator to ensure a ."""
+def get_user(user):
+    """Tries to get a user struct for the provided user name or uid."""
 
-    @wraps(method)
-    def wrapper(self, user, *args, **kwargs):
-        """Tries to get a user struct for the provided user name or uid."""
-        if isinstance(user, int):
-            user = getpwuid(user)
-        elif isinstance(user, str):
-            user = getpwnam(user)
-        elif not isinstance(user, struct_passwd):
-            raise TypeError(
-                'user must be one of "int", "str" or "pwd.struct_passwd".')
+    if isinstance(user, int):
+        return getpwuid(user)
 
-        return method(self, user, *args, **kwargs)
+    if isinstance(user, str):
+        return getpwnam(user)
 
-    return wrapper
+    if isinstance(user, struct_passwd):
+        return user
+
+    raise TypeError('user must be one of "int", "str" or "pwd.struct_passwd".')
 
 
 class LoginPolicy(Enum):
@@ -119,9 +103,9 @@ class Config(NamedTuple):
 class SessionManager:
     """A web service session handler."""
 
-    def __init__(self, session, config=None):
+    def __init__(self, session_class, config=None):
         """Sets the session base and configuration."""
-        self.session = session
+        self.session_class = session_class
 
         if config is None:
             self.config = Config.default()
@@ -136,24 +120,27 @@ class SessionManager:
                 'config must be one of "httpam.Config", "dict", "str" or '
                 '"pathlib.Path".')
 
-    @with_uuid
-    def get(self, token: UUID):
+    def get(self, token):
         """Returns the respective session ID."""
         try:
-            session = self.session.get(self.session.token == token)
-        except self.session.DoesNotExist:
+            session = self.session_class.by_token(token)
+        except NoSuchSession:
             raise SessionExpired()
 
-        if session.validate(self.config.session_duration):
+        if session.validate():
             return session
 
         session.close()
         raise SessionExpired()
 
 
-    @with_user
     def login(self, user, password: str):
         """Attempts a login."""
+        try:
+            user = get_user(user)
+        except KeyError:
+            raise AuthenticationError()
+
         if not password and not self.config.allow_empty_password:
             raise AuthenticationError()
 
@@ -170,38 +157,29 @@ class SessionManager:
             raise AuthenticationError(pam.reason, pam.code)
 
         if self.config.login_policy == LoginPolicy.SINGLE:
-            try:
-                self.session.get(self.session.user == user.pw_name)
-            except self.session.DoesNotExist:
-                pass
-            else:
+            for _ in self.session_class.by_user(user):
                 raise AlreadyLoggedIn()
         elif self.config.login_policy == LoginPolicy.OVERRIDE:
-            for session in self.session.select().where(
-                    self.session.user == user.pw_name):
+            for session in self.session_class.by_user(user):
                 session.close()
 
-        session = self.session.open(user, self.config.session_duration)
-        session.save()
-        return session
+        return self.session_class.open(user, self.config.session_duration)
 
-    @with_uuid
-    def close(self, token: UUID) -> None:
+    def close(self, token) -> None:
         """Closes the respective session."""
         try:
-            session = self.session.get(self.session.token == token)
-        except self.session.DoesNotExist:
+            session = self.session_class.by_token(token)
+        except NoSuchSession:
             return False
 
         session.close()
         return True
 
-    @with_uuid
-    def refresh(self, token: UUID):
+    def refresh(self, token):
         """Refreshes the session."""
         try:
-            session = self.session.get(self.session.token == token)
-        except self.session.DoesNotExist:
+            session = self.session_class.by_token(token)
+        except NoSuchSession:
             raise SessionExpired()
 
         if session.validate():
@@ -214,7 +192,7 @@ class SessionManager:
 
     def strip(self) -> None:
         """Removes all timed-out sessions."""
-        for session in self.session:
+        for session in self.session_class:
             try:
                 session.validate()
             except SessionExpired:
