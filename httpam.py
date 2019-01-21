@@ -2,7 +2,8 @@
 
 from datetime import datetime, timedelta
 from enum import Enum
-from json import dumps, loads
+from json import dumps, load
+from pathlib import Path
 from pwd import getpwnam
 from typing import NamedTuple
 from uuid import uuid4, UUID
@@ -77,9 +78,8 @@ class Config(NamedTuple):
     def from_file(cls, config_file):
         """Creates a config instance from the respective config file."""
         with open(config_file, 'r') as cfg:
-            text = cfg.read()
+            user_config = load(cfg)
 
-        user_config = loads(text)
         config = DEFAULT_CONFIG.copy()
         config.update(user_config)
         return cls.from_dict(config)
@@ -111,7 +111,7 @@ class SessionBase(JSONModel):
         if self.start + timedelta(minutes=duration) >= datetime.now():
             return True
 
-        raise SessionExpired() from None
+        raise SessionExpired()
 
     def refresh(self):
         """Returns a new session with updated ID and start time."""
@@ -123,9 +123,21 @@ class SessionManager:
     """A web service session handler."""
 
     def __init__(self, session: SessionBase, config=None):
-        """Sets the config_file."""
+        """Sets the session base and configuration."""
         self.session = session
-        self.config = config
+
+        if config is None:
+            self.config = Config.default()
+        elif isinstance(config, Config):
+            self.config = config
+        elif isinstance(config, dict):
+            self.config = Config.from_dict(config)
+        elif isinstance(config, (str, Path)):
+            self.config = Config.from_file(config)
+        else:
+            raise TypeError(
+                'config must be one of "httpam.Config", "dict", "str" or '
+                '"pathlib.Path".')
 
     def get(self, token: UUID) -> SessionBase:
         """Returns the respective session ID."""
@@ -133,36 +145,36 @@ class SessionManager:
             session = self.session.get(
                 self.session.token == _ensure_uuid(token))
         except self.session.DoesNotExist:
-            raise SessionExpired() from None
+            raise SessionExpired()
 
         if session.validate(self.config.session_duration):
             return session
 
         session.delete_instance()
-        raise SessionExpired() from None
+        raise SessionExpired()
 
 
     def login(self, user_name: str, password: str) -> SessionBase:
         """Attempts a login."""
         if not password and not self.config.allow_empty_password:
-            raise AuthenticationError() from None
+            raise AuthenticationError()
 
         try:
             user = getpwnam(user_name)
         except KeyError:
-            raise AuthenticationError() from None
+            raise AuthenticationError()
 
         if user.pw_name == 'root' or user.pw_uid == 0:
             if not self.config.allow_root:
-                raise AuthenticationError() from None
+                raise AuthenticationError()
 
         if user.pw_uid < self.config.min_uid:
-            raise AuthenticationError() from None
+            raise AuthenticationError()
 
         pam = PAM()
 
         if not pam.authenticate(user.pw_name, password):
-            raise AuthenticationError(pam.reason, pam.code) from None
+            raise AuthenticationError(pam.reason, pam.code)
 
         if self.config.login_policy == LoginPolicy.SINGLE:
             try:
@@ -170,7 +182,7 @@ class SessionManager:
             except self.session.DoesNotExist:
                 pass
             else:
-                raise AlreadyLoggedIn() from None
+                raise AlreadyLoggedIn()
         elif self.config.login_policy == LoginPolicy.OVERRIDE:
             for session in self.session.select().where(
                     self.session.user == user.pw_name):
@@ -197,7 +209,7 @@ class SessionManager:
             session = self.session.get(
                 self.session.token == _ensure_uuid(token))
         except self.session.DoesNotExist:
-            raise SessionExpired() from None
+            raise SessionExpired()
 
         if session.validate(self.config.session_duration):
             session.refresh()
@@ -205,7 +217,7 @@ class SessionManager:
             return session
 
         session.delete_instance()
-        raise SessionExpired() from None
+        raise SessionExpired()
 
     def strip(self) -> None:
         """Removes all timed-out sessions."""
