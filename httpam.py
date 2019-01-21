@@ -86,9 +86,11 @@ class Config(NamedTuple):
     def from_dict(cls, dictionary):
         """Creates a config instance from the respective dict."""
         return cls(
-            dictionary['allow_root'], dictionary['allow_empty_password'],
-            dictionary['min_uid'], LoginPolicy(dictionary['login_policy']),
-            dictionary['session_duration'])
+            bool(dictionary['allow_root']),
+            bool(dictionary['allow_empty_password']),
+            int(dictionary['min_uid']),
+            LoginPolicy(dictionary['login_policy']),
+            int(dictionary['session_duration']))
 
 
 class SessionBase(JSONModel):
