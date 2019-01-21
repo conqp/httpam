@@ -127,7 +127,7 @@ class SessionManager:
         except NoSuchSession:
             raise SessionExpired()
 
-        if session.validate():
+        if session.valid:
             return session
 
         session.close()
@@ -182,9 +182,8 @@ class SessionManager:
         except NoSuchSession:
             raise SessionExpired()
 
-        if session.validate():
-            session.refresh(self.config.session_duration)
-            return session
+        if session.valid:
+            return session.refresh(self.config.session_duration)
 
         session.close()
         raise SessionExpired()
@@ -192,7 +191,5 @@ class SessionManager:
     def strip(self) -> None:
         """Removes all timed-out sessions."""
         for session in self.session_class:
-            try:
-                session.validate()
-            except SessionExpired:
+            if not session.valid:
                 session.close()
