@@ -69,13 +69,15 @@ class Config(NamedTuple):
     session_duration: int
 
     @classmethod
+    def default(cls):
+        """Returns the default config."""
+        return cls.from_dict(DEFAULT_CONFIG)
+
+    @classmethod
     def from_file(cls, config_file):
         """Creates a config instance from the respective config file."""
-        try:
-            with open(config_file, 'r') as cfg:
-                text = cfg.read()
-        except FileNotFoundError:
-            return cls.from_dict(DEFAULT_CONFIG)
+        with open(config_file, 'r') as cfg:
+            text = cfg.read()
 
         user_config = loads(text)
         config = DEFAULT_CONFIG.copy()
