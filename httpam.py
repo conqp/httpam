@@ -184,7 +184,6 @@ class SessionManager:
 
         if session.validate():
             session.refresh(self.config.session_duration)
-            session.save()
             return session
 
         session.close()
