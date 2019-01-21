@@ -5,12 +5,12 @@ from enum import Enum
 from functools import wraps
 from json import dumps, load
 from pathlib import Path
-from pwd import getpwnam
+from pwd import getpwnam, getpwuid, struct_passwd
 from typing import NamedTuple
 from uuid import uuid4, UUID
 
 from pam import pam as PAM
-from peewee import CharField, DateTimeField, UUIDField
+from peewee import CharField, DateTimeField, IntegerField, UUIDField
 from peeweeplus import JSONModel
 
 
@@ -48,14 +48,33 @@ def with_uuid(method):
     """Decorator to ensure that the first argument is a UUID."""
 
     @wraps(method)
-    def decorator(self, uuid, *args, **kwargs):
+    def wrapper(self, uuid, *args, **kwargs):
         """Tries to create a UUID instance from the given uuid."""
         if not isinstance(uuid, UUID):
             uuid = UUID(uuid)
 
         return method(self, uuid, *args, **kwargs)
 
-    return decorator
+    return wrapper
+
+
+def with_user(method):
+    """Decorator to ensure a ."""
+
+    @wraps(method)
+    def wrapper(self, user, *args, **kwargs):
+        """Tries to get a user struct for the provided user name or uid."""
+        if isinstance(user, int):
+            user = getpwuid(user)
+        elif isinstance(user, str):
+            user = getpwnam(user)
+        elif not isinstance(user, struct_passwd):
+            raise TypeError(
+                'user must be one of "int", "str" or "pwd.struct_passwd".')
+
+        return method(self, user, *args, **kwargs)
+
+    return wrapper
 
 
 class LoginPolicy(Enum):
@@ -106,12 +125,22 @@ class SessionBase(JSONModel):
 
     token = UUIDField(default=uuid4)
     user = CharField(255)
+    uid = IntegerField()
     start = DateTimeField(default=datetime.now)
     end = DateTimeField()
 
     def __str__(self):
         """Returns the session as JSON string."""
         return dumps(self.to_json(), indent=2)
+
+    @classmethod
+    def open(cls, user, duration):
+        """Opens a new session for the respective user."""
+        session = cls()
+        session.user = user.pw_name
+        session.uid = user.pw_uid
+        session.end = datetime.now() + duration
+        return session
 
     def validate(self, duration):
         """Checks whether the session is still valid."""
@@ -161,14 +190,10 @@ class SessionManager:
         raise SessionExpired()
 
 
-    def login(self, user_name: str, password: str) -> SessionBase:
+    @with_user
+    def login(self, user, password: str) -> SessionBase:
         """Attempts a login."""
         if not password and not self.config.allow_empty_password:
-            raise AuthenticationError()
-
-        try:
-            user = getpwnam(user_name)
-        except KeyError:
             raise AuthenticationError()
 
         if user.pw_name == 'root' or user.pw_uid == 0:
@@ -195,7 +220,7 @@ class SessionManager:
                     self.session.user == user.pw_name):
                 session.delete_instance()
 
-        session = self.session(user=user.pw_name)
+        session = self.session.open(user, self.config.session_duration)
         session.save()
         return session
 
@@ -218,8 +243,8 @@ class SessionManager:
         except self.session.DoesNotExist:
             raise SessionExpired()
 
-        if session.validate(self.config.session_duration):
-            session.refresh()
+        if session.validate():
+            session.refresh(self.config.session_duration)
             session.save()
             return session
 
@@ -230,6 +255,6 @@ class SessionManager:
         """Removes all timed-out sessions."""
         for session in self.session:
             try:
-                session.validate(self.config.session_duration)
+                session.validate()
             except SessionExpired:
                 session.delete_instance()
