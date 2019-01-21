@@ -179,7 +179,7 @@ class SessionManager:
         elif self.config.login_policy == LoginPolicy.OVERRIDE:
             for session in self.session.select().where(
                     self.session.user == user.pw_name):
-                session.delete_instance()
+                session.close()
 
         session = self.session.open(user, self.config.session_duration)
         session.save()
@@ -193,7 +193,7 @@ class SessionManager:
         except self.session.DoesNotExist:
             return False
 
-        session.delete_instance()
+        session.close()
         return True
 
     @with_uuid
@@ -209,7 +209,7 @@ class SessionManager:
             session.save()
             return session
 
-        session.delete_instance()
+        session.close()
         raise SessionExpired()
 
     def strip(self) -> None:
