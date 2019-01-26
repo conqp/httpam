@@ -82,8 +82,11 @@ class Config(NamedTuple):
     @classmethod
     def from_file(cls, config_file):
         """Creates a config instance from the respective config file."""
-        with open(config_file, 'r') as cfg:
-            user_config = load(cfg)
+        try:
+            with open(config_file, 'r') as cfg:
+                user_config = load(cfg)
+        except FileNotFoundError:
+            user_config = {}
 
         config = DEFAULT_CONFIG.copy()
         config.update(user_config)
